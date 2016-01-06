@@ -1,18 +1,16 @@
 package annotations.io.classfile;
 
-import org.objectweb.asm.ClassAdapter;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
+import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Label;
-import org.objectweb.asm.MethodAdapter;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 
 import annotations.io.DebugWriter;
-import annotations.util.AbstractClassVisitor;
 
-public class CodeOffsetAdapter extends ClassAdapter {
+public class CodeOffsetAdapter extends XClassVisitor {
   static final DebugWriter debug;
   final ClassReader cr;
   final char[] buf;
@@ -25,12 +23,14 @@ public class CodeOffsetAdapter extends ClassAdapter {
     debug.setEnabled(false);
   }
 
+  // For some reason, it is necessary to use ClassWriter to ensure that
+  // all labels are visited.
   public CodeOffsetAdapter(ClassReader cr) {
-    this(cr, new AbstractClassVisitor());
+    this(cr, new ClassWriter(cr, Opcodes.ASM5));
   }
 
   public CodeOffsetAdapter(ClassReader cr, ClassVisitor v) {
-    super(v);
+    super(Opcodes.ASM5, v);
     this.cr = cr;
     // const pool size is (not lowest) upper bound of string length
     buf = new char[cr.header];
@@ -51,7 +51,7 @@ public class CodeOffsetAdapter extends ClassAdapter {
       String signature, String[] exceptions) {
     MethodVisitor v =
         super.visitMethod(access, name, desc, signature, exceptions);
-    return new MethodAdapter(v) {
+    return new MethodVisitor(Opcodes.ASM5, v) {
       private int methodEnd;
 
       {
@@ -160,8 +160,8 @@ public class CodeOffsetAdapter extends ClassAdapter {
 
       @Override
       public void visitMethodInsn(int opcode,
-          String owner, String name, String desc) {
-        super.visitMethodInsn(opcode, owner, name, desc);
+          String owner, String name, String desc, boolean itf) {
+        super.visitMethodInsn(opcode, owner, name, desc, itf);
         debug.debug("%d visitMethodInsn(%d, %s, %s, %s)%n", offset,
             opcode, owner, name, desc);
         offset += opcode == Opcodes.INVOKEINTERFACE ? 5 : 3;
@@ -177,7 +177,7 @@ public class CodeOffsetAdapter extends ClassAdapter {
 
       @Override
       public void visitTableSwitchInsn(int min, int max,
-          Label dflt, Label[] labels) {
+          Label dflt, Label... labels) {
         super.visitTableSwitchInsn(min, max, dflt, labels);
         debug.debug("%d visitTableSwitchInsn(%d, %d, %s)%n", offset,
             min, max, dflt, labels);

@@ -14,11 +14,11 @@ import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.Opcodes;
-import org.objectweb.asm.TypeAnnotationVisitor;
 import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Type;
-import org.objectweb.asm.commons.EmptyVisitor;
+import org.objectweb.asm.TypePath;
+import org.objectweb.asm.TypeReference;
 
 import annotations.*;
 import annotations.el.*;
@@ -50,8 +50,7 @@ import com.sun.tools.javac.code.TypeAnnotationPosition.TypePathEntry;
  * and should not be called anywhere else, due to the order in which
  * {@link org.objectweb.asm.ClassVisitor} methods should be called.
  */
-public class ClassAnnotationSceneReader
-extends EmptyVisitor {
+public class ClassAnnotationSceneReader extends XClassVisitor {
   // general strategy:
   // -only "Runtime[In]visible[Type]Annotations" are supported
   // -use an empty visitor for everything besides annotations, fields and
@@ -96,12 +95,13 @@ extends EmptyVisitor {
    *  will be inserted
    */
   public ClassAnnotationSceneReader(ClassReader cr, AScene scene) {
+    super(Opcodes.ASM5);
     this.cr = cr;
     this.scene = scene;
   }
 
   /**
-   * @see org.objectweb.asm.commons.EmptyVisitor#visit(int, int, java.lang.String, java.lang.String, java.lang.String, java.lang.String[])
+   * @see org.objectweb.asm.ClassVisitor#visit(int, int, java.lang.String, java.lang.String, java.lang.String, java.lang.String[])
    */
   @Override
   public void visit(int version, int access, String name, String signature,
@@ -110,25 +110,25 @@ extends EmptyVisitor {
   }
 
   /**
-   * @see org.objectweb.asm.commons.EmptyVisitor#visitAnnotation(java.lang.String, boolean)
+   * @see org.objectweb.asm.ClassVisitor#visitAnnotation(java.lang.String, boolean)
    */
   @Override
   public AnnotationVisitor visitAnnotation(String desc, boolean visible) {
     if (trace) { System.out.printf("visitAnnotation(%s, %s) in %s (%s)%n", desc, visible, this, this.getClass()); }
-    return visitTypeAnnotation(desc, visible, false);
+    return new AnnotationSceneReader(desc, visible/*, false*/, aClass);
   }
 
   /**
-   * @see org.objectweb.asm.commons.EmptyVisitor#visitTypeAnnotation(java.lang.String, boolean, boolean)
+   * @see org.objectweb.asm.ClassVisitor#visitTypeAnnotation(int, org.objectweb.asm.TypePath, java.lang.String, boolean)
    */
-  @Override
-  public TypeAnnotationVisitor visitTypeAnnotation(String desc, boolean visible, boolean inCode) {
-    if (trace) { System.out.printf("visitTypeAnnotation(%s, %s, %s); aClass=%s in %s (%s)%n", desc, inCode, visible, aClass, this, this.getClass()); }
-    return new AnnotationSceneReader(desc, visible, aClass);
+  public AnnotationVisitor visitTypeAnnotation(int typeRef,
+      TypePath typePath, String desc, boolean visible/*, boolean inCode*/) {
+    if (trace) { System.out.printf("visitTypeAnnotation(%s, %s); aClass=%s in %s (%s)%n", desc/*, inCode*/, visible, aClass, this, this.getClass()); }
+    return new AnnotationSceneReader(typeRef, typePath, desc, visible, aClass);
   }
 
   /**
-   * @see org.objectweb.asm.commons.EmptyVisitor#visitField(int, java.lang.String, java.lang.String, java.lang.String, java.lang.Object)
+   * @see org.objectweb.asm.ClassVisitor#visitField(int, java.lang.String, java.lang.String, java.lang.String, java.lang.Object)
    */
   @Override
   public FieldVisitor visitField(
@@ -143,7 +143,7 @@ extends EmptyVisitor {
   }
 
   /**
-   * @see org.objectweb.asm.commons.EmptyVisitor#visitMethod(int, java.lang.String, java.lang.String, java.lang.String, java.lang.String[])
+   * @see org.objectweb.asm.ClassVisitor#visitMethod(int, java.lang.String, java.lang.String, java.lang.String, java.lang.String[])
    */
   @Override
   public MethodVisitor visitMethod(
@@ -186,7 +186,7 @@ extends EmptyVisitor {
    * of the correct form (ATypeElement, or AMethod depending on the
    * target type of the extended annotation).
    */
-  private class AnnotationSceneReader implements TypeAnnotationVisitor {
+  private class AnnotationSceneReader extends XAnnotationVisitor {
     // Implementation strategy:
     // For field values and enums, simply pass the information
     //  onto annotationBuilder.
@@ -197,6 +197,11 @@ extends EmptyVisitor {
     // For extended information, store all arguments passed in and on
     //  this.visitEnd(), handle all the information based on target type.
 
+    // Type reference indicated in the constructor, if any.
+    protected TypeReference typeReference = null;
+
+    // Type path indicated in the constructor, if any.
+    protected TypePath typePath = null;
 
     // The AElement into which the annotation visited should be inserted.
     protected AElement aElement;
@@ -264,6 +269,12 @@ extends EmptyVisitor {
      * @param desc JVML format for the field being read, or ClassAnnotationSceneReader.dummyDesc
      */
     public AnnotationSceneReader(String desc, boolean visible, AElement aElement) {
+      this(0, null, desc, visible, aElement);
+    }
+
+    public AnnotationSceneReader(int typeRef, TypePath typePath,
+        String desc, boolean visible, AElement aElement) {
+      super(Opcodes.ASM5);
       if (trace) { System.out.printf("AnnotationSceneReader(%s, %s, %s)%n", desc, visible, aElement); }
       this.visible = visible;
       this.aElement = aElement;
@@ -290,6 +301,11 @@ extends EmptyVisitor {
       this.xBoundIndexArgs = new ArrayList<Integer>(1);
       this.xExceptionIndexArgs = new ArrayList<Integer>(1);
       this.xTypeIndexArgs = new ArrayList<Integer>(1);
+
+      if (typeRef > 0) {
+        this.typeReference = new TypeReference(typeRef);
+        this.typePath = typePath;
+      }
     }
 
     /*
@@ -520,7 +536,12 @@ extends EmptyVisitor {
     @Override
     public void visitEnd() {
       if (trace) { System.out.printf("visitEnd on %s (%s)%n", this, this.getClass()); }
-      if (xTargetTypeArgs.size() >= 1) {
+      if (typeReference != null) {
+        visitXTargetType(typeReference.getSort());
+        if (typePath != null) {
+          visitTypePath(typePath);
+        }
+
         TargetType target = TargetType.fromTargetTypeValue(xTargetTypeArgs.get(0));
         // TEMP
         // If the expression used to initialize a field contains annotations
@@ -1109,7 +1130,7 @@ extends EmptyVisitor {
    * an ATypeElement that this is visiting, and they will write out
    * all the information to that ATypeElement after visiting each annotation.
    */
-  private class FieldAnnotationSceneReader extends EmptyVisitor implements FieldVisitor {
+  private class FieldAnnotationSceneReader extends FieldVisitor {
 
     /*
     private final String name;
@@ -1125,6 +1146,7 @@ extends EmptyVisitor {
         String signature,
         Object value,
         AElement aField) {
+      super(Opcodes.ASM5);
       /*
       this.name = name;
       this.desc = desc;
@@ -1141,9 +1163,10 @@ extends EmptyVisitor {
     }
 
     @Override
-    public TypeAnnotationVisitor visitTypeAnnotation(String desc, boolean visible, boolean inCode) {
-      if (trace) { System.out.printf("visitTypeAnnotation(%s, %s, %s); aField=%s, aField.type=%s in %s (%s)%n", desc, visible, inCode, aField, aField.type, this, this.getClass()); }
-      return new AnnotationSceneReader(desc, visible, aField.type);
+    public AnnotationVisitor visitTypeAnnotation(int typeRef, TypePath typePath,
+        String desc, boolean visible/*, boolean inCode*/) {
+      if (trace) { System.out.printf("visitTypeAnnotation(%s, %s); aField=%s, aField.type=%s in %s (%s)%n", desc, visible, aField, aField.type, this, this.getClass()); }
+      return new AnnotationSceneReader(typeRef, typePath, desc, visible, aField.type);
     }
   }
 
@@ -1157,7 +1180,7 @@ extends EmptyVisitor {
    * visiting, and they will write out all the information to that
    * AMethod after visiting each annotation.
    */
-  private class MethodAnnotationSceneReader extends EmptyVisitor implements MethodVisitor {
+  private class MethodAnnotationSceneReader extends MethodVisitor {
 
     // private final String name;
     // private final String desc;
@@ -1165,6 +1188,7 @@ extends EmptyVisitor {
     private final AElement aMethod;
 
     public MethodAnnotationSceneReader(String name, String desc, String signature, AElement aMethod) {
+      super(Opcodes.ASM5);
       // this.name = name;
       // this.desc = desc;
       // this.signature = signature;
@@ -1174,12 +1198,11 @@ extends EmptyVisitor {
     @Override
     public AnnotationVisitor visitAnnotation(String desc, boolean visible) {
       if (trace) { System.out.printf("visitAnnotation(%s, %s) in %s (%s)%n", desc, visible, this, this.getClass()); }
-      return visitTypeAnnotation(desc, visible, false);
+      return visitTypeAnnotation(desc, visible/*, false*/);
     }
 
-    @Override
-    public TypeAnnotationVisitor visitTypeAnnotation(String desc, boolean visible, boolean inCode) {
-      if (trace) { System.out.printf("visitTypeAnnotation(%s, %s) method=%s in %s (%s)%n", desc, visible, inCode, aMethod, this, this.getClass()); }
+    public AnnotationVisitor visitTypeAnnotation(String desc, boolean visible/*, boolean inCode*/) {
+      if (trace) { System.out.printf("visitTypeAnnotation(%s, %s) in %s (%s)%n", desc, visible, aMethod, this, this.getClass()); }
       return new AnnotationSceneReader(desc, visible, aMethod);
     }
 

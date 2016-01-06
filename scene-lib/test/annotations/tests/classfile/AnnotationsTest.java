@@ -249,8 +249,8 @@ public class AnnotationsTest extends TestCase {
 
       AnnotationVerifier av = new AnnotationVerifier();
 
-      crCorrect.accept(av.originalVisitor(), false);
-      crGenerated.accept(av.newVisitor(), false);
+      crCorrect.accept(av.originalVisitor(), 0);
+      crGenerated.accept(av.newVisitor(), 0);
 
       try {
         av.verify();
