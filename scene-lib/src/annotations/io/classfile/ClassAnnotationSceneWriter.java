@@ -208,7 +208,7 @@ public class ClassAnnotationSceneWriter extends XClassVisitor {
     //  its annotations in the scene.
     // MethodVisitor is used here only for getting around an unsound
     //  "optimization" in ClassReader.
-    return new MethodVisitor(Opcodes.ASM5,
+    return new XMethodVisitor(Opcodes.ASM5,
         new MethodAnnotationSceneWriter(name, desc,
             super.visitMethod(access, name, desc, signature, exceptions))) {};
   }
@@ -284,7 +284,8 @@ public class ClassAnnotationSceneWriter extends XClassVisitor {
       case INNER_TYPE:
         b.append('.'); break;
       case TYPE_ARGUMENT:
-        b.append(Integer.toString(tpe.arg)); break;
+        b.append(Integer.toString(tpe.arg));
+        b.append(';'); break;
       case WILDCARD:
         b.append('*'); break;
       }
@@ -1474,7 +1475,7 @@ public class ClassAnnotationSceneWriter extends XClassVisitor {
         lambdaExpressions.put(methodDescription, lambdas);
       }
 
-      return new MethodVisitor(Opcodes.ASM5,
+      return new XMethodVisitor(Opcodes.ASM5,
           new MethodCodeOffsetAdapter(cr, new MethodVisitor(Opcodes.ASM5) {}, codeStart) {
               @Override
               public void visitInvokeDynamicInsn(String name,
