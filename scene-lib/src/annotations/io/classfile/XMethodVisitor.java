@@ -1,6 +1,7 @@
 package annotations.io.classfile;
 
 import org.objectweb.asm.AnnotationVisitor;
+import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.TypePath;
 
@@ -12,7 +13,7 @@ import org.objectweb.asm.TypePath;
  */
 public class XMethodVisitor extends MethodVisitor {
   public XMethodVisitor(int api) {
-    super(api);
+    this(api, null);
   }
 
   public XMethodVisitor(int api, MethodVisitor mv) {
@@ -20,16 +21,28 @@ public class XMethodVisitor extends MethodVisitor {
   }
 
   @Override
+  public AnnotationVisitor visitLocalVariableAnnotation(int typeRef,
+      TypePath typePath, Label[] start, Label[] end, int[] index,
+      String desc, boolean visible) {
+    XAnnotationVisitor v = new XAnnotationVisitor(api,
+        super.visitLocalVariableAnnotation(typeRef,
+            typePath, start, end, index, desc, visible));
+    return v;  //.accept(typeRef, typePath, start, end, index, desc, visible, mv);
+  }
+
+  @Override
   public AnnotationVisitor visitTypeAnnotation(int typeRef,
-      TypePath typePath, String desc, final boolean visible) {
-    return new XAnnotationVisitor(api).accept(typeRef,
-        typePath, desc, visible, mv);
+      TypePath typePath, String desc, boolean visible) {
+    XAnnotationVisitor v = new XAnnotationVisitor(api,
+        super.visitTypeAnnotation(typeRef, typePath, desc, visible));
+    return v; //.accept(typeRef, typePath, desc, visible, mv);
   }
 
   @Override
   public AnnotationVisitor visitInsnAnnotation(int typeRef,
       TypePath typePath, String desc, boolean visible) {
-    return new XAnnotationVisitor(api).accept(typeRef,
-        typePath, desc, visible, mv);
+    XAnnotationVisitor v = new XAnnotationVisitor(api,
+        super.visitInsnAnnotation(typeRef, typePath, desc, visible));
+    return v; //.accept(typeRef, typePath, desc, visible, mv);
   }
 }

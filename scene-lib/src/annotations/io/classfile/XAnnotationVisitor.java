@@ -187,171 +187,128 @@ public class XAnnotationVisitor extends AnnotationVisitor {
     }
   }
 
-  public AnnotationVisitor accept(int typeRef, TypePath typePath,
-      String desc, boolean visible, ClassVisitor v) {
-    accept(typeRef, typePath, desc, visible);
-    return v == null ? null
-        : v.visitTypeAnnotation(typeRef, typePath, desc, visible);
-  }
-
-  public AnnotationVisitor accept(int typeRef, TypePath typePath,
-      String desc, boolean visible, MethodVisitor v) {
-    accept(typeRef, typePath, desc, visible);
-    return v == null ? null
-        : v.visitTypeAnnotation(typeRef, typePath, desc, visible);
-  }
-
-  public AnnotationVisitor accept(int typeRef, TypePath typePath,
-      String desc, boolean visible, int offset, MethodVisitor v) {
-    accept(typeRef, typePath, desc, visible, offset);
-    return v == null ? null
-        : v.visitTypeAnnotation(typeRef, typePath, desc, visible);
-  }
-
-  public AnnotationVisitor accept(int typeRef, TypePath typePath,
-      String desc, boolean visible,
-      Label[] start, Label[] end, int[] index, MethodVisitor v) {
-    accept(typeRef, typePath, desc, visible, start, end, index);
-    return v == null ? null
-        : v.visitTypeAnnotation(typeRef, typePath, desc, visible);
-  }
-
-  public AnnotationVisitor accept(int typeRef, TypePath typePath,
-      String desc, boolean visible, FieldVisitor v) {
-    accept(typeRef, typePath, desc, visible);
-    return v.visitTypeAnnotation(typeRef, typePath, desc, visible);
-  }
-
-  void accept(int typeRef, TypePath typePath,
-      String desc, boolean visible) {
-    accept(typeRef, typePath, desc, visible, -1, null, null, null);
-  }
-
-  void accept(int typeRef, TypePath typePath,
-      String desc, boolean visible, int offset) {
-    accept(typeRef, typePath, desc, visible, offset, null, null, null);
-  }
-
-  void accept(int typeRef, TypePath typePath,
-      String desc, boolean visible,
-      Label[] start, Label[] end, int[] index) {
-    accept(typeRef, typePath, desc, visible, -1, start, end, index);
-  }
-
-  void accept(int typeRef, TypePath typePath,
-      String desc, boolean visible, int offset,
-      Label[] start, Label[] end, int[] index) {
-    TypeReference typeReference = new TypeReference(typeRef);
-    int targetType = typeReference.getSort();
-    visitXTargetType(targetType);
-
-    if (typePath != null) {
-      visitTypePath(typePath);
-    }
-
-    if (offset > 0) {
-      visitXOffset(offset);
-    }
-
-    if (start != null && end != null && index != null) {
-      // from visitLocalVariable
-      int i = start.length;
-      int ix = i;
-      int lo = start[--i].getOffset();
-
-      // find the widest range (assuming no overlap)
-      while (--i >= 0) {
-        int off = start[--i].getOffset();
-        if (off <= lo) {
-          ix = i;
-          lo = off;
-        }
-      }
-
-      visitXStartPc(lo);
-      visitXLength(end[ix].getOffset() - lo);
-      visitXIndex(index[0]);
-    } else {
-      switch (targetType) {
-      case TypeReference.INSTANCEOF:
-      case TypeReference.NEW:
-      case TypeReference.CONSTRUCTOR_REFERENCE:
-      case TypeReference.METHOD_REFERENCE:
-        visitXOffset(offset);
-        break;
-
-      case TypeReference.METHOD_RECEIVER:
-        break;
-
-      case TypeReference.LOCAL_VARIABLE:
-      case TypeReference.RESOURCE_VARIABLE:
-        // call to visitTypeAnnotation() instead of
-        // visitLocalVariableAnnotation()?
-        throw new IllegalArgumentException(
-            "Target type not allowed: " + targetType);
-
-      case TypeReference.METHOD_RETURN:
-        break;
-
-      case TypeReference.METHOD_FORMAL_PARAMETER:
-        visitXParamIndex(typeReference.getFormalParameterIndex());
-        break;
-
-      case TypeReference.FIELD:
-        break;
-
-      case TypeReference.CLASS_TYPE_PARAMETER_BOUND:
-      case TypeReference.METHOD_TYPE_PARAMETER_BOUND:
-        visitXParamIndex(typeReference.getTypeParameterIndex());
-        visitXBoundIndex(typeReference.getTypeParameterBoundIndex());
-
-      case TypeReference.CLASS_EXTENDS:
-        visitXTypeIndex(typeReference.getSuperTypeIndex());
-        break;
-
-      case TypeReference.THROWS:
-        visitXTypeIndex(typeReference.getExceptionIndex());
-        break;
-
-      case TypeReference.EXCEPTION_PARAMETER:
-        visitXExceptionIndex(typeReference.getTryCatchBlockIndex());
-        break;
-
-      case TypeReference.CAST:
-      case TypeReference.CONSTRUCTOR_INVOCATION_TYPE_ARGUMENT:
-      case TypeReference.METHOD_INVOCATION_TYPE_ARGUMENT:
-      case TypeReference.CONSTRUCTOR_REFERENCE_TYPE_ARGUMENT:
-      case TypeReference.METHOD_REFERENCE_TYPE_ARGUMENT:
-        visitXOffset(offset);
-        visitXTypeIndex(typeReference.getTypeArgumentIndex());
-        break;
-
-      case TypeReference.CLASS_TYPE_PARAMETER:
-      case TypeReference.METHOD_TYPE_PARAMETER:
-        visitXParamIndex(typeReference.getTypeParameterIndex());
-        break;
-
-      default: throw new IllegalArgumentException(
-          "Unrecognized target type: " + targetType);
-      }
-    }
-  }
-
   void visitTypePath(TypePath typePath) {
     int n = typePath.getLength();
     List<Integer> l = new ArrayList<Integer>(n);
-
+  
     for (int i = 0; i < n; i++) {
       int step = typePath.getStep(i);
       l.add(step);
       l.add(step != TypePath.TYPE_ARGUMENT ? 0
           : typePath.getStepArgument(i));
     }
-
+  
     visitXLocationLength(n);
     for (TypeAnnotationPosition.TypePathEntry e :
         TypeAnnotationPosition.getTypePathFromBinary(l)) {
       visitXLocation(e);
     }
   }
+
+//  public AnnotationVisitor accept(int typeRef, TypePath typePath,
+//      String desc, boolean visible, ClassVisitor v) {
+//    accept(typeRef, typePath, desc, visible);
+//    return v == null ? null
+//        : v.visitTypeAnnotation(typeRef, typePath, desc, visible);
+//  }
+//
+//  public AnnotationVisitor accept(int typeRef, TypePath typePath,
+//      String desc, boolean visible, MethodVisitor v) {
+//    //AnnotationVisitor av =
+//    accept(typeRef, typePath, desc, visible);
+//    return v == null ? null
+//        : v.visitTypeAnnotation(typeRef, typePath, desc, visible);
+//  }
+//
+//  public AnnotationVisitor accept(int typeRef, TypePath typePath,
+//      String desc, boolean visible, FieldVisitor v) {
+//    accept(typeRef, typePath, desc, visible);
+//    return v.visitTypeAnnotation(typeRef, typePath, desc, visible);
+//  }
+//
+//  void accept(int typeRef, TypePath typePath,
+//      String desc, boolean visible) {
+//    accept(typeRef, typePath, desc, visible, -1);
+//  }
+//
+//  void accept(int typeRef, TypePath typePath,
+//      String desc, boolean visible, int offset) {
+//    TypeReference typeReference = new TypeReference(typeRef);
+//    int targetType = typeReference.getSort();
+//    visitXTargetType(targetType);
+//
+//    if (typePath != null) {
+//      visitTypePath(typePath);
+//    }
+//
+//    if (offset >= 0) {
+//      visitXOffset(offset);
+//    }
+//
+//    switch (targetType) {
+//    case TypeReference.INSTANCEOF:
+//    case TypeReference.NEW:
+//    case TypeReference.CONSTRUCTOR_REFERENCE:
+//    case TypeReference.METHOD_REFERENCE:
+//      break;
+//
+//    case TypeReference.LOCAL_VARIABLE:
+//    case TypeReference.RESOURCE_VARIABLE:
+//      break;
+//
+//    case TypeReference.METHOD_RETURN:
+//      break;
+//
+//    case TypeReference.METHOD_FORMAL_PARAMETER:
+//      visitXParamIndex(typeReference.getFormalParameterIndex());
+//      break;
+//
+//    case TypeReference.FIELD:
+//      break;
+//
+//    case TypeReference.CLASS_TYPE_PARAMETER_BOUND:
+//    case TypeReference.METHOD_TYPE_PARAMETER_BOUND:
+//      visitXParamIndex(typeReference.getTypeParameterIndex());
+//      visitXBoundIndex(typeReference.getTypeParameterBoundIndex());
+//      break;
+//
+//    case TypeReference.CLASS_EXTENDS:
+//      visitXTypeIndex(typeReference.getSuperTypeIndex());
+//      break;
+//
+//    case TypeReference.THROWS:
+//      visitXTypeIndex(typeReference.getExceptionIndex());
+//      break;
+//
+//    case TypeReference.EXCEPTION_PARAMETER:
+//      visitXExceptionIndex(typeReference.getTryCatchBlockIndex());
+//      break;
+//
+//    case TypeReference.CAST:
+//    case TypeReference.CONSTRUCTOR_INVOCATION_TYPE_ARGUMENT:
+//    case TypeReference.METHOD_INVOCATION_TYPE_ARGUMENT:
+//    case TypeReference.CONSTRUCTOR_REFERENCE_TYPE_ARGUMENT:
+//    case TypeReference.METHOD_REFERENCE_TYPE_ARGUMENT:
+//      visitXTypeIndex(typeReference.getTypeArgumentIndex());
+//      break;
+//
+//    case TypeReference.CLASS_TYPE_PARAMETER:
+//    case TypeReference.METHOD_TYPE_PARAMETER:
+//      visitXParamIndex(typeReference.getTypeParameterIndex());
+//      break;
+//
+//    default: throw new IllegalArgumentException(
+//        "Unrecognized target type: " + targetType);
+//    }
+//  }
+//
+//  public AnnotationVisitor accept(int typeRef, TypePath typePath,
+//      Label[] start, Label[] end, int[] index,
+//      String desc, boolean visible, MethodVisitor mv) {
+//    assert index.length == 1;
+//    this.start = start[0];
+//    this.end = end[0];
+//    this.index = index[0];
+//    return accept(typeRef, typePath, desc, visible, mv);
+//  }
 }

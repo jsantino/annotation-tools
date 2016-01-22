@@ -1,16 +1,15 @@
 package annotator.scanner;
 
 import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 
-import annotations.io.classfile.CodeOffsetAdapter;
-import annotations.io.classfile.XClassVisitor;
-import annotations.io.classfile.XMethodVisitor;
-
 import com.sun.tools.javac.util.Pair;
+
+import annotations.io.classfile.CodeOffsetAdapter;
 
 
 /**
@@ -20,7 +19,7 @@ import com.sun.tools.javac.util.Pair;
  * should visit every class that is to be annotated, and should be done
  * before trying to match elements in the tree to the various criterion.
  */
-public class MethodOffsetClassVisitor extends XClassVisitor {
+public class MethodOffsetClassVisitor extends /*X*/ClassVisitor {
   CodeOffsetAdapter coa;
   MethodVisitor mcoa;
 
@@ -49,7 +48,7 @@ public class MethodOffsetClassVisitor extends XClassVisitor {
    * all the offset information by calling the appropriate static
    * methods in annotator.scanner classes.
    */
-  private class MethodOffsetMethodVisitor extends XMethodVisitor {
+  private class MethodOffsetMethodVisitor extends /*X*/MethodVisitor {
     private Label lastLabel;
 
     public MethodOffsetMethodVisitor(MethodVisitor mv) {

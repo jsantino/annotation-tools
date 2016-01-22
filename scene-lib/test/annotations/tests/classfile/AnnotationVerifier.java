@@ -273,7 +273,7 @@ public class AnnotationVerifier {
    * A ClassRecorder records all the annotations that it visits, and serves
    * as a ClassVisitor, FieldVisitor, and MethodVisitor.
    */
-  private class ClassRecorder extends ClassVisitor implements RecorderDelegate {
+  private class ClassRecorder extends /*X*/ClassVisitor implements RecorderDelegate {
     final Recorder rec;
 
     public ClassRecorder() {
@@ -332,7 +332,7 @@ public class AnnotationVerifier {
     }
   }
 
-  private class FieldRecorder extends FieldVisitor implements RecorderDelegate {
+  private class FieldRecorder extends /*X*/FieldVisitor implements RecorderDelegate {
     final Recorder rec;
 
     public FieldRecorder(String internalDescription, String name,
@@ -362,7 +362,7 @@ public class AnnotationVerifier {
     }
   }
 
-  private class MethodRecorder extends MethodVisitor implements RecorderDelegate {
+  private class MethodRecorder extends /*X*/MethodVisitor implements RecorderDelegate {
     final Recorder rec;
 
     public MethodRecorder(String internalDescription, String name,

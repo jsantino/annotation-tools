@@ -9,6 +9,7 @@ import java.io.*;
 import com.sun.tools.javac.main.CommandLine;
 
 import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.ClassWriter;
 
 import plume.Option;
 import plume.Options;
@@ -210,7 +211,7 @@ public class ClassFileWriter {
     ClassAnnotationSceneWriter cw =
       new ClassAnnotationSceneWriter(cr, scene, overwrite);
 
-    cr.accept(cw, 0);
+    cr.accept(cw, ClassWriter.COMPUTE_MAXS);
 
     out.write(cw.toByteArray());
   }

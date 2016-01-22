@@ -18,8 +18,10 @@ import java.lang.annotation.RetentionPolicy;
 
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Handle;
+import org.objectweb.asm.Label;
 import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
@@ -134,7 +136,7 @@ public class ClassAnnotationSceneWriter extends XClassVisitor {
    * into the class this visits
    */
   public ClassAnnotationSceneWriter(ClassReader cr, AScene scene, boolean overwrite) {
-    super(Opcodes.ASM5, new ClassWriter(cr, 0));
+    super(Opcodes.ASM5, new ClassWriter(cr, ClassWriter.COMPUTE_FRAMES));
     this.scene = scene;
     this.hasVisitedClassAnnotationsInScene = false;
     this.aClass = null;
@@ -165,7 +167,7 @@ public class ClassAnnotationSceneWriter extends XClassVisitor {
   @Override
   public void visit(int version, int access, String name,
       String signature, String superName, String[] interfaces) {
-    cr.accept(new MethodCodeIndexer(), 0);
+    cr.accept(new MethodCodeIndexer(), ClassReader.EXPAND_FRAMES);
     super.visit(version, access, name, signature, superName, interfaces);
     // class files store fully quantified class names with '/' instead of '.'
     name = name.replace('/', '.');
@@ -208,9 +210,11 @@ public class ClassAnnotationSceneWriter extends XClassVisitor {
     //  its annotations in the scene.
     // MethodVisitor is used here only for getting around an unsound
     //  "optimization" in ClassReader.
-    return new XMethodVisitor(Opcodes.ASM5,
+    return //new XMethodVisitor(Opcodes.ASM5,
         new MethodAnnotationSceneWriter(name, desc,
-            super.visitMethod(access, name, desc, signature, exceptions))) {};
+            super.visitMethod(access, name, desc, signature, exceptions))
+        //) {}
+        ;
   }
 
   /**
@@ -684,6 +688,8 @@ public class ClassAnnotationSceneWriter extends XClassVisitor {
      */
     private final List<String> existingMethodAnnotations;
 
+    private final LocalVarTable localVarTable;
+
     /**
      * Constructs a new MethodAnnotationSceneWriter with the given name and
      * description that wraps around the given MethodVisitor.
@@ -698,6 +704,7 @@ public class ClassAnnotationSceneWriter extends XClassVisitor {
       this.hasVisitedMethodAnnotations = false;
       this.aMethod = aClass.methods.vivify(name+desc);
       this.existingMethodAnnotations = new ArrayList<String>();
+      this.localVarTable = new LocalVarTable();
     }
 
     /**
@@ -708,6 +715,13 @@ public class ClassAnnotationSceneWriter extends XClassVisitor {
     public void visitCode() {
       ensureVisitSceneMethodAnnotations();
       super.visitCode();
+    }
+
+    @Override
+    public void visitLocalVariable(String name, String desc,
+        String signature, Label start, Label end, int index) {
+      localVarTable.put(name, desc, signature, start, end, index);
+      super.visitLocalVariable(name, desc, signature, start, end, index);
     }
 
     /**
@@ -778,6 +792,17 @@ public class ClassAnnotationSceneWriter extends XClassVisitor {
     visitTypeAnnotation(TypeReference typeReference, Annotation tla) {
       return visitTypeAnnotation(typeReference, null, tla);
     }
+
+    //private AnnotationVisitor visitLocalVariableAnnotation(int typeRef,
+    //    TypePath typePath, LocalLocation localLocation, Annotation tla) {
+    //  Label l;
+    //  int[] start = { localLocation.scopeStart };
+    //  int[] end = { localLocation.scopeStart + localLocation.scopeLength };
+    //  int[] index = { localLocation.index };
+    //  return super.visitLocalVariableAnnotation(typeRef, typePath,
+    //      start, end, index,
+    //      classNameToDesc(name(tla)), isRuntimeRetention(tla));
+    //}
 
     /**
      * Returns true iff the annotation in tla should not be written because it
@@ -925,11 +950,11 @@ public class ClassAnnotationSceneWriter extends XClassVisitor {
           if (shouldSkip(tla)) continue;
 
           AnnotationVisitor xav = visitTypeAnnotation(typeReference, tla);
-          visitTargetType(xav, TargetType.LOCAL_VARIABLE);
-          visitLocalVar(xav, localLocation);
-          visitLocations(xav, InnerTypeLocation.EMPTY_INNER_TYPE_LOCATION);
-          visitFields(xav, tla);
-          xav.visitEnd();
+          //visitTargetType(xav, TargetType.LOCAL_VARIABLE);
+          //visitLocalVar(xav, localLocation);
+          //visitLocations(xav, InnerTypeLocation.EMPTY_INNER_TYPE_LOCATION);
+          //visitFields(xav, tla);
+          //xav.visitEnd();
         }
 
         // now do annotations on inner type of aLocation (local variable)
@@ -939,16 +964,18 @@ public class ClassAnnotationSceneWriter extends XClassVisitor {
           ATypeElement aInnerType = e.getValue();
           for (Annotation tla : aInnerType.tlAnnotationsHere) {
             if (shouldSkip(tla)) continue;
+            int typeRef = typeReference.getValue();
+            TypePath typePath = localVariableLocation == null || localVariableLocation.location.isEmpty() ? null
+                : innerTypePath(localVariableLocation);
 
-            AnnotationVisitor xav = visitTypeAnnotation(typeReference,
-                localVariableLocation, tla);
-            visitTargetType(xav, TargetType.LOCAL_VARIABLE);
+            AnnotationVisitor xav = visitTypeAnnotation(typeRef, typePath, tla);
+            //visitTargetType(xav, TargetType.LOCAL_VARIABLE);
             // information for raw type (local variable)
-            visitLocalVar(xav, localLocation);
+            //visitLocalVar(xav, localLocation);
             // information for generic/array (on local variable)
-            visitLocations(xav, localVariableLocation);
-            visitFields(xav, tla);
-            xav.visitEnd();
+            //visitLocations(xav, localVariableLocation);
+            //visitFields(xav, tla);
+            //xav.visitEnd();
           }
 
         }
@@ -1415,7 +1442,7 @@ public class ClassAnnotationSceneWriter extends XClassVisitor {
     }
   }
 
-  class MethodCodeIndexer extends XClassVisitor {
+  class MethodCodeIndexer extends /*X*/ClassVisitor {
     private int codeStart = 0;
     Set<Integer> constrs;  // distinguishes constructors from methods
     Set<Integer> lambdas;  // distinguishes lambda exprs from member refs
@@ -1475,8 +1502,14 @@ public class ClassAnnotationSceneWriter extends XClassVisitor {
         lambdaExpressions.put(methodDescription, lambdas);
       }
 
-      return new XMethodVisitor(Opcodes.ASM5,
+      return //new /*X*/MethodVisitor(Opcodes.ASM5,
           new MethodCodeOffsetAdapter(cr, new MethodVisitor(Opcodes.ASM5) {}, codeStart) {
+              //@Override
+              //public void visitLocalVariable(String name, String desc,
+              //    String signature, Label start, Label end, int index) {
+              //  super.visitLocalVariable(name, desc,
+              //      signature, start, end, index);
+              //}
               @Override
               public void visitInvokeDynamicInsn(String name,
                   String desc, Handle bsm, Object... bsmArgs) {
@@ -1495,7 +1528,9 @@ public class ClassAnnotationSceneWriter extends XClassVisitor {
                 }
                 super.visitInvokeDynamicInsn(name, desc, bsm, bsmArgs);
               }
-          }) {};
+          }
+      //) {}
+      ;
     }
   }
 }

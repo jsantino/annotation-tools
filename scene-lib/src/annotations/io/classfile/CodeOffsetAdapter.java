@@ -10,13 +10,14 @@ import org.objectweb.asm.Opcodes;
 
 import annotations.io.DebugWriter;
 
-public class CodeOffsetAdapter extends XClassVisitor {
+public class CodeOffsetAdapter extends /*X*/ClassVisitor {
   static final DebugWriter debug;
   final ClassReader cr;
   final char[] buf;
   int methodStart;
   int codeStart;
   int offset;
+  int previousOffset;
 
   static {
     debug = new DebugWriter();
@@ -51,7 +52,7 @@ public class CodeOffsetAdapter extends XClassVisitor {
       String signature, String[] exceptions) {
     MethodVisitor v =
         super.visitMethod(access, name, desc, signature, exceptions);
-    return new MethodVisitor(Opcodes.ASM5, v) {
+    return new /*X*/MethodVisitor(Opcodes.ASM5, v) {
       private int methodEnd;
 
       {
@@ -84,6 +85,7 @@ public class CodeOffsetAdapter extends XClassVisitor {
           }
         }
         offset = 0;
+        previousOffset = -1;
       }
 
       private int readInt(int i) {
@@ -96,28 +98,28 @@ public class CodeOffsetAdapter extends XClassVisitor {
         super.visitFieldInsn(opcode, owner, name, desc);
         debug.debug("%d visitFieldInsn(%d, %s, %s, %s)%n", offset,
             opcode, owner, name, desc);
-        offset += 3;
+        advance(3);
       }
 
       @Override
       public void visitIincInsn(int var, int increment) {
         super.visitIincInsn(var, increment);
         debug.debug("%d visitIincInsn(%d, %d)%n", offset, var, increment);
-        offset += 3;
+        advance(3);
       }
 
       @Override
       public void visitInsn(int opcode) {
         super.visitInsn(opcode);
         debug.debug("%d visitInsn(%d)%n", offset, opcode);
-        ++offset;
+        advance(1);
       }
 
       @Override
       public void visitIntInsn(int opcode, int operand) {
         super.visitIntInsn(opcode, operand);
         debug.debug("%d visitIntInsn(%d, %d)%n", offset, opcode, operand);
-        offset += opcode == Opcodes.SIPUSH ? 3 : 2;
+        advance(opcode == Opcodes.SIPUSH ? 3 : 2);
       }
 
       @Override
@@ -126,7 +128,7 @@ public class CodeOffsetAdapter extends XClassVisitor {
         super.visitInvokeDynamicInsn(name, desc, bsm, bsmArgs);
         debug.debug("%d visitInvokeDynamicInsn(%s, %s)%n", offset,
             name, desc, bsm, bsmArgs);
-        offset += 5;
+        advance(5);
       }
 
       @Override
@@ -134,7 +136,7 @@ public class CodeOffsetAdapter extends XClassVisitor {
         super.visitJumpInsn(opcode, label);
         debug.debug("%d visitJumpInsn(%d, %s)%n", offset, opcode, label);
         // account for wide instructions goto_w (200) and jsr_w (201)
-        offset += cr.readByte(codeStart + offset) < 200 ? 3 : 4;
+        advance(cr.readByte(codeStart + offset) < 200 ? 3 : 4);
         assert offset > 0 && methodEnd > codeStart + offset;
       }
 
@@ -143,7 +145,7 @@ public class CodeOffsetAdapter extends XClassVisitor {
         super.visitLdcInsn(cst);
         debug.debug("%d visitLdcInsn(%s)%n", offset, cst);
         // account for wide instructions ldc_w (19) and ldc2_w (20)
-        offset += cr.readByte(codeStart + offset) > 18 ? 3 : 2;
+        advance(cr.readByte(codeStart + offset) > 18 ? 3 : 2);
         assert offset > 0 && methodEnd > codeStart + offset;
       }
 
@@ -153,6 +155,7 @@ public class CodeOffsetAdapter extends XClassVisitor {
         super.visitLookupSwitchInsn(dflt, keys, labels);
         debug.debug("%d visitLookupSwitchInsn(%s)%n", offset,
             dflt, keys, labels);
+        previousOffset = offset;
         offset += 8 - (offset & 3);
         offset += 4 + 8 * readInt(offset);
         assert offset > 0 && methodEnd > codeStart + offset;
@@ -164,7 +167,7 @@ public class CodeOffsetAdapter extends XClassVisitor {
         super.visitMethodInsn(opcode, owner, name, desc, itf);
         debug.debug("%d visitMethodInsn(%d, %s, %s, %s)%n", offset,
             opcode, owner, name, desc);
-        offset += opcode == Opcodes.INVOKEINTERFACE ? 5 : 3;
+        advance(opcode == Opcodes.INVOKEINTERFACE ? 5 : 3);
       }
 
       @Override
@@ -172,7 +175,7 @@ public class CodeOffsetAdapter extends XClassVisitor {
         super.visitMultiANewArrayInsn(desc, dims);
         debug.debug("%d visitMultiANewArrayInsn(%s, %d)%n", offset,
             desc, dims);
-        offset += 4;
+        advance(4);
       }
 
       @Override
@@ -181,6 +184,7 @@ public class CodeOffsetAdapter extends XClassVisitor {
         super.visitTableSwitchInsn(min, max, dflt, labels);
         debug.debug("%d visitTableSwitchInsn(%d, %d, %s)%n", offset,
             min, max, dflt, labels);
+        previousOffset = offset;
         offset += 8 - (offset & 3);
         offset += 4 * (readInt(offset + 4) - readInt(offset) + 3);
         assert offset > 0 && methodEnd > codeStart + offset;
@@ -190,24 +194,32 @@ public class CodeOffsetAdapter extends XClassVisitor {
       public void visitTypeInsn(int opcode, String desc) {
         super.visitTypeInsn(opcode, desc);
         debug.debug("%d visitTypeInsn(%d, %s)%n", offset, opcode, desc);
-        offset += 3;
+        advance(3);
       }
 
       @Override
       public void visitVarInsn(int opcode, int var) {
         super.visitVarInsn(opcode, var);
         debug.debug("%d visitVarInsn(%d, %d)%n", offset, opcode, var);
-        offset += var < 4 ? 1 : 2;
+        advance(var < 4 ? 1 : 2);
       }
 
       @Override
       public void visitEnd() {
+        super.visitEnd();
         methodStart = methodEnd;
       }
     };
   }
 
+  public int getPreviousCodeOffset() { return previousOffset; }
+
   public int getMethodCodeOffset() { return offset; }
 
   public int getBytecodeOffset() { return codeStart + offset; }
+
+  private void advance(int n) {
+    previousOffset = offset;
+    offset += n;
+  }
 }

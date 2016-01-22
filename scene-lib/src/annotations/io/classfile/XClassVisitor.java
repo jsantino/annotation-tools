@@ -35,7 +35,9 @@ public class XClassVisitor extends ClassVisitor {
   @Override
   public AnnotationVisitor visitTypeAnnotation(int typeRef,
       TypePath typePath, String desc, final boolean visible) {
-    return new XAnnotationVisitor(api).accept(typeRef,
-        typePath, desc, visible, cv);
+    return new XAnnotationVisitor(api,
+        super.visitTypeAnnotation(typeRef, typePath, desc, visible));
+    //return new XAnnotationVisitor(api).accept(typeRef,
+    //    typePath, desc, visible, cv);
   }
 }

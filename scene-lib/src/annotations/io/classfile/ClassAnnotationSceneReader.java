@@ -25,6 +25,7 @@ import annotations.el.*;
 import annotations.field.*;
 
 import com.sun.tools.javac.code.TargetType;
+import com.sun.tools.javac.code.TypeAnnotationPosition;
 import com.sun.tools.javac.code.TypeAnnotationPosition.TypePathEntry;
 
 /**
@@ -50,7 +51,7 @@ import com.sun.tools.javac.code.TypeAnnotationPosition.TypePathEntry;
  * and should not be called anywhere else, due to the order in which
  * {@link org.objectweb.asm.ClassVisitor} methods should be called.
  */
-public class ClassAnnotationSceneReader extends XClassVisitor {
+public class ClassAnnotationSceneReader extends CodeOffsetAdapter {
   // general strategy:
   // -only "Runtime[In]visible[Type]Annotations" are supported
   // -use an empty visitor for everything besides annotations, fields and
@@ -95,7 +96,7 @@ public class ClassAnnotationSceneReader extends XClassVisitor {
    *  will be inserted
    */
   public ClassAnnotationSceneReader(ClassReader cr, AScene scene) {
-    super(Opcodes.ASM5);
+    super(cr);
     this.cr = cr;
     this.scene = scene;
   }
@@ -156,7 +157,8 @@ public class ClassAnnotationSceneReader extends XClassVisitor {
     // uncomment below to omit implementation-dependent compiler-generated code
     // if ((access & Opcodes.ACC_BRIDGE) != 0) { return null; }
     AMethod aMethod = aClass.methods.vivify(name+desc);
-    return new MethodAnnotationSceneReader(name, desc, signature, aMethod);
+    return new MethodAnnotationSceneReader(name, desc, signature, aMethod,
+        this, super.visitMethod(access, name, desc, signature, exceptions));
   }
 
   // converts JVML format to Java format
@@ -653,6 +655,24 @@ public class ClassAnnotationSceneReader extends XClassVisitor {
       }
     }
 
+    void visitTypePath(TypePath typePath) {
+      int n = typePath.getLength();
+      List<Integer> l = new ArrayList<Integer>(n);
+    
+      for (int i = 0; i < n; i++) {
+        int step = typePath.getStep(i);
+        l.add(step);
+        l.add(step != TypePath.TYPE_ARGUMENT ? 0
+            : typePath.getStepArgument(i));
+      }
+    
+      visitXLocationLength(n);
+      for (TypeAnnotationPosition.TypePathEntry e :
+          TypeAnnotationPosition.getTypePathFromBinary(l)) {
+        visitXLocation(e);
+      }
+    }
+
     // The following are utility methods to facilitate creating all the
     // necessary data structures in the scene library.
 
@@ -1130,7 +1150,7 @@ public class ClassAnnotationSceneReader extends XClassVisitor {
    * an ATypeElement that this is visiting, and they will write out
    * all the information to that ATypeElement after visiting each annotation.
    */
-  private class FieldAnnotationSceneReader extends FieldVisitor {
+  private class FieldAnnotationSceneReader extends /*X*/FieldVisitor {
 
     /*
     private final String name;
@@ -1180,29 +1200,117 @@ public class ClassAnnotationSceneReader extends XClassVisitor {
    * visiting, and they will write out all the information to that
    * AMethod after visiting each annotation.
    */
-  private class MethodAnnotationSceneReader extends MethodVisitor {
+  private class MethodAnnotationSceneReader extends /*X*/MethodVisitor {
 
     // private final String name;
     // private final String desc;
     // private final String signature;
     private final AElement aMethod;
+    private final CodeOffsetAdapter coa;
+    private final LocalVarTable localVars;
 
-    public MethodAnnotationSceneReader(String name, String desc, String signature, AElement aMethod) {
-      super(Opcodes.ASM5);
+    public MethodAnnotationSceneReader(String name, String desc,
+        String signature, AElement aMethod, CodeOffsetAdapter coa,
+        MethodVisitor mv) {
+      super(Opcodes.ASM5, mv);
       // this.name = name;
       // this.desc = desc;
       // this.signature = signature;
       this.aMethod = aMethod;
+      this.coa = coa;
+      this.localVars = new LocalVarTable();
     }
 
     @Override
     public AnnotationVisitor visitAnnotation(String desc, boolean visible) {
+      super.visitAnnotation(desc, visible);
       if (trace) { System.out.printf("visitAnnotation(%s, %s) in %s (%s)%n", desc, visible, this, this.getClass()); }
-      return visitTypeAnnotation(desc, visible/*, false*/);
+      return new AnnotationSceneReader(desc, visible, aMethod);
     }
 
-    public AnnotationVisitor visitTypeAnnotation(String desc, boolean visible/*, boolean inCode*/) {
+    @Override
+    public AnnotationVisitor visitInsnAnnotation(int typeRef,
+        TypePath typePath, String desc, boolean visible) {
+      return null;  // TODO
+    }
+
+    @Override
+    public AnnotationVisitor visitTypeAnnotation(int typeRef,
+        TypePath typePath, String desc, boolean visible/*, boolean inCode*/) {
+      super.visitTypeAnnotation(typeRef, typePath, desc, visible);
       if (trace) { System.out.printf("visitTypeAnnotation(%s, %s) in %s (%s)%n", desc, visible, aMethod, this, this.getClass()); }
+      XAnnotationVisitor av = new AnnotationSceneReader(desc, visible, aMethod);
+      TypeReference typeReference = new TypeReference(typeRef);
+      int targetType = typeReference.getSort();
+
+      av.visitXTargetType(targetType);
+      if (typePath != null) {
+        av.visitTypePath(typePath);
+      }
+
+      switch (targetType) {
+      case TypeReference.INSTANCEOF:
+      case TypeReference.NEW:
+      case TypeReference.CONSTRUCTOR_REFERENCE:
+      case TypeReference.METHOD_REFERENCE:
+        av.visitXOffset(coa.getBytecodeOffset());
+        break;
+
+      case TypeReference.LOCAL_VARIABLE:
+      case TypeReference.RESOURCE_VARIABLE:
+        // handled in visitLocalVariable
+        break;
+
+      case TypeReference.METHOD_RETURN:
+        break;
+
+      case TypeReference.METHOD_RECEIVER:
+        //av.visitXParamIndex(-1);
+        break;
+
+      case TypeReference.METHOD_FORMAL_PARAMETER:
+        av.visitXParamIndex(typeReference.getFormalParameterIndex());
+        break;
+
+      case TypeReference.FIELD:
+        break;
+
+      case TypeReference.CLASS_TYPE_PARAMETER_BOUND:
+      case TypeReference.METHOD_TYPE_PARAMETER_BOUND:
+        av.visitXParamIndex(typeReference.getTypeParameterIndex());
+        av.visitXBoundIndex(typeReference.getTypeParameterBoundIndex());
+        break;
+
+      case TypeReference.CLASS_EXTENDS:
+        av.visitXTypeIndex(typeReference.getSuperTypeIndex());
+        break;
+
+      case TypeReference.THROWS:
+        av.visitXTypeIndex(typeReference.getExceptionIndex());
+        break;
+
+      case TypeReference.EXCEPTION_PARAMETER:
+        av.visitXExceptionIndex(typeReference.getTryCatchBlockIndex());
+        break;
+
+      case TypeReference.CAST:
+      case TypeReference.CONSTRUCTOR_INVOCATION_TYPE_ARGUMENT:
+      case TypeReference.METHOD_INVOCATION_TYPE_ARGUMENT:
+      case TypeReference.CONSTRUCTOR_REFERENCE_TYPE_ARGUMENT:
+      case TypeReference.METHOD_REFERENCE_TYPE_ARGUMENT:
+        av.visitXOffset(coa.getBytecodeOffset());
+        av.visitXTypeIndex(typeReference.getTypeArgumentIndex());
+        break;
+
+      case TypeReference.CLASS_TYPE_PARAMETER:
+      case TypeReference.METHOD_TYPE_PARAMETER:
+        av.visitXParamIndex(typeReference.getTypeParameterIndex());
+        break;
+
+      default: throw new IllegalArgumentException(
+          "Unrecognized target type: " + targetType);
+      }
+
       return new AnnotationSceneReader(desc, visible, aMethod);
     }
 
@@ -1216,7 +1324,29 @@ public class ClassAnnotationSceneReader extends XClassVisitor {
     @Override
     public void visitLocalVariable(String name, String desc, String signature,
         Label start, Label end, int index) {
-      // TODO!
+      super.visitLocalVariable(name, desc, signature, start, end, index);
+      localVars.put(name, desc, signature, start, end, index);
+      // defer most work to visitEnd() to ensure all labels resolved
+    }
+
+    @Override
+    public void visitEnd() {
+      super.visitEnd();
+      for (LocalVarTable.Entry lv : localVars.getEntries()) {
+        LocalLocation loc = new LocalLocation(lv.start.getOffset(),
+            lv.end.getOffset(), lv.index);
+        AElement aField = ((AMethod) aMethod).body.locals.vivify(loc);
+        TypeReference typeReference =
+            TypeReference.newTypeReference(TypeReference.LOCAL_VARIABLE);
+        int typeRef = typeReference.getValue();
+        XAnnotationVisitor av =
+            new AnnotationSceneReader(typeRef, null, lv.desc, false, aField);
+        av.visitXStartPc(lv.start.getOffset());
+        av.visitXLength(lv.end.getOffset() - lv.start.getOffset());
+        av.visitXIndex(lv.index);
+        av.visitXNumEntries(1);
+        av.visitEnd();
+      }
     }
 
     // TODO: visit code!
