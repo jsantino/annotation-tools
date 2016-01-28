@@ -5,11 +5,17 @@ import java.util.Set;
 
 import org.objectweb.asm.Label;
 
+import annotations.el.LocalLocation;
+
 public class LocalVarTable {
   private final Set<Entry> entries;
 
   LocalVarTable() {
     entries = new HashSet<Entry>();
+  }
+
+  public Entry get(LocalLocation loc) {
+    return get(loc.scopeStart, loc.scopeStart + loc.scopeLength, loc.index);
   }
 
   public Entry get(int start, int end, int index) {

@@ -1,5 +1,9 @@
 package annotations.io.classfile;
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.TreeMap;
+
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
@@ -8,9 +12,11 @@ import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 
+import annotations.el.AElement;
+import annotations.el.LocalLocation;
 import annotations.io.DebugWriter;
 
-public class CodeOffsetAdapter extends /*X*/ClassVisitor {
+public class CodeOffsetAdapter extends ClassWriterProxy {
   static final DebugWriter debug;
   final ClassReader cr;
   final char[] buf;
@@ -18,6 +24,9 @@ public class CodeOffsetAdapter extends /*X*/ClassVisitor {
   int codeStart;
   int offset;
   int previousOffset;
+  Map<Integer, Label> labels = new TreeMap<Integer, Label>();
+  Map<LocalLocation, String> localVars =
+      new HashMap<LocalLocation, String>();
 
   static {
     debug = new DebugWriter();
@@ -27,11 +36,11 @@ public class CodeOffsetAdapter extends /*X*/ClassVisitor {
   // For some reason, it is necessary to use ClassWriter to ensure that
   // all labels are visited.
   public CodeOffsetAdapter(ClassReader cr) {
-    this(cr, new ClassWriter(cr, Opcodes.ASM5));
+    this(cr, new ClassWriter(cr, ClassWriter.COMPUTE_FRAMES));
   }
 
   public CodeOffsetAdapter(ClassReader cr, ClassVisitor v) {
-    super(Opcodes.ASM5, v);
+    super(cr, ClassWriter.COMPUTE_FRAMES, v);
     this.cr = cr;
     // const pool size is (not lowest) upper bound of string length
     buf = new char[cr.header];
@@ -90,6 +99,21 @@ public class CodeOffsetAdapter extends /*X*/ClassVisitor {
 
       private int readInt(int i) {
         return cr.readInt(codeStart + i);
+      }
+
+      @Override
+      public void visitLabel(Label label) {
+        super.visitLabel(label);
+        labels.put(offset, label);
+      }
+
+      @Override
+      public void visitLocalVariable(String name, String desc,
+          String signature, Label start, Label end, int index) {
+        super.visitLocalVariable(name, desc, signature, start, end, index);
+        int off = start.getOffset();
+        int len = end.getOffset() - off;
+        localVars.put(new LocalLocation(index, off, len), name+desc);
       }
 
       @Override

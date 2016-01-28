@@ -13,14 +13,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeSet;
 import java.lang.annotation.RetentionPolicy;
 
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.ClassVisitor;
-import org.objectweb.asm.ClassWriter;
-import org.objectweb.asm.Handle;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.MethodVisitor;
@@ -123,7 +119,7 @@ public class ClassAnnotationSceneWriter extends XClassVisitor {
   private final Map<String, Set<Integer>> dynamicConstructors;
   private final Map<String, Set<Integer>> lambdaExpressions;
 
-  private ClassReader cr = null;
+  CodeOffsetAdapter coa;
 
   /**
    * Constructs a new <code> ClassAnnotationSceneWriter </code> that will
@@ -136,7 +132,7 @@ public class ClassAnnotationSceneWriter extends XClassVisitor {
    * into the class this visits
    */
   public ClassAnnotationSceneWriter(ClassReader cr, AScene scene, boolean overwrite) {
-    super(Opcodes.ASM5, new ClassWriter(cr, ClassWriter.COMPUTE_FRAMES));
+    super(Opcodes.ASM5, new CodeOffsetAdapter(cr));
     this.scene = scene;
     this.hasVisitedClassAnnotationsInScene = false;
     this.aClass = null;
@@ -144,7 +140,7 @@ public class ClassAnnotationSceneWriter extends XClassVisitor {
     this.overwrite = overwrite;
     this.dynamicConstructors = new HashMap<String, Set<Integer>>();
     this.lambdaExpressions = new HashMap<String, Set<Integer>>();
-    this.cr = cr;
+    this.coa = (CodeOffsetAdapter) cv;
   }
 
   /**
@@ -157,7 +153,7 @@ public class ClassAnnotationSceneWriter extends XClassVisitor {
    * @return a byte array of the merged class file
    */
   public byte[] toByteArray() {
-    return ((ClassWriter) cv).toByteArray();
+    return ((ClassWriterProxy) cv).toByteArray();
   }
 
   /**
@@ -167,7 +163,6 @@ public class ClassAnnotationSceneWriter extends XClassVisitor {
   @Override
   public void visit(int version, int access, String name,
       String signature, String superName, String[] interfaces) {
-    cr.accept(new MethodCodeIndexer(), ClassReader.EXPAND_FRAMES);
     super.visit(version, access, name, signature, superName, interfaces);
     // class files store fully quantified class names with '/' instead of '.'
     name = name.replace('/', '.');
@@ -945,16 +940,28 @@ public class ClassAnnotationSceneWriter extends XClassVisitor {
         AElement aLocation = entry.getValue();
         TypeReference typeReference =
             TypeReference.newTypeReference(TypeReference.LOCAL_VARIABLE);
+        int typeRef = typeReference.getValue();
 
         for (Annotation tla : aLocation.tlAnnotationsHere) {
           if (shouldSkip(tla)) continue;
 
           AnnotationVisitor xav = visitTypeAnnotation(typeReference, tla);
-          //visitTargetType(xav, TargetType.LOCAL_VARIABLE);
-          //visitLocalVar(xav, localLocation);
-          //visitLocations(xav, InnerTypeLocation.EMPTY_INNER_TYPE_LOCATION);
-          //visitFields(xav, tla);
-          //xav.visitEnd();
+          String e = coa.localVars.get(localLocation);
+          if (e != null) {
+            Label[] l0 = { coa.labels.get(localLocation.scopeStart) };
+            Label[] l1 = { coa.labels.get(localLocation.scopeStart
+                + localLocation.scopeLength) };
+            if (l0 != null && l1 != null) {
+              AnnotationVisitor lav = visitLocalVariableAnnotation(typeRef,
+                  null, l0, l1, new int[] { localLocation.index },
+                  classNameToDesc(name(tla)), isRuntimeRetention(tla));
+              visitTargetType(lav, TargetType.LOCAL_VARIABLE);
+              visitLocalVar(lav, localLocation);
+              visitLocations(lav, InnerTypeLocation.EMPTY_INNER_TYPE_LOCATION);
+              visitFields(lav, tla);
+              lav.visitEnd();
+            }
+          }
         }
 
         // now do annotations on inner type of aLocation (local variable)
@@ -964,18 +971,17 @@ public class ClassAnnotationSceneWriter extends XClassVisitor {
           ATypeElement aInnerType = e.getValue();
           for (Annotation tla : aInnerType.tlAnnotationsHere) {
             if (shouldSkip(tla)) continue;
-            int typeRef = typeReference.getValue();
-            TypePath typePath = localVariableLocation == null || localVariableLocation.location.isEmpty() ? null
-                : innerTypePath(localVariableLocation);
 
+            TypePath typePath = localVariableLocation == null ? null
+                : innerTypePath(localVariableLocation);
             AnnotationVisitor xav = visitTypeAnnotation(typeRef, typePath, tla);
-            //visitTargetType(xav, TargetType.LOCAL_VARIABLE);
+            visitTargetType(xav, TargetType.LOCAL_VARIABLE);
             // information for raw type (local variable)
-            //visitLocalVar(xav, localLocation);
+            visitLocalVar(xav, localLocation);
             // information for generic/array (on local variable)
-            //visitLocations(xav, localVariableLocation);
-            //visitFields(xav, tla);
-            //xav.visitEnd();
+            visitLocations(xav, localVariableLocation);
+            visitFields(xav, tla);
+            xav.visitEnd();
           }
 
         }
@@ -1439,98 +1445,6 @@ public class ClassAnnotationSceneWriter extends XClassVisitor {
         // TODO: throw clauses?!
         // TODO: catch clauses!?
       }
-    }
-  }
-
-  class MethodCodeIndexer extends /*X*/ClassVisitor {
-    private int codeStart = 0;
-    Set<Integer> constrs;  // distinguishes constructors from methods
-    Set<Integer> lambdas;  // distinguishes lambda exprs from member refs
-
-    MethodCodeIndexer() {
-      super(Opcodes.ASM5);
-      int fieldCount;
-      // const pool size is (not lowest) upper bound of string length
-      codeStart = cr.header + 6;
-      codeStart += 2 + 2 * cr.readUnsignedShort(codeStart);
-      fieldCount = cr.readUnsignedShort(codeStart);
-      codeStart += 2;
-      while (--fieldCount >= 0) {
-        int attrCount = cr.readUnsignedShort(codeStart + 6);
-        codeStart += 8;
-        while (--attrCount >= 0) {
-          codeStart += 6 + cr.readInt(codeStart + 2);
-        }
-      }
-      codeStart += 2;
-    }
-
-    @Override
-    public void visit(int version, int access, String name, String signature,
-        String superName, String[] interfaces) {
-    }
-
-    @Override
-    public void visitSource(String source, String debug) {}
-
-    @Override
-    public void visitOuterClass(String owner, String name, String desc) {}
-
-    @Override
-    public void visitInnerClass(String name, String outerName,
-        String innerName, int access) {
-    }
-
-    @Override
-    public FieldVisitor visitField(int access, String name, String desc,
-        String signature, Object value) {
-      return null;
-    }
-
-    @Override
-    public MethodVisitor visitMethod(int access,
-        String name, String desc, String signature, String[] exceptions) {
-      String methodDescription = name + desc;
-      constrs = dynamicConstructors.get(methodDescription);
-      if (constrs == null) {
-        constrs = new TreeSet<Integer>();
-        dynamicConstructors.put(methodDescription, constrs);
-      }
-      lambdas = lambdaExpressions.get(methodDescription);
-      if (lambdas == null) {
-        lambdas = new TreeSet<Integer>();
-        lambdaExpressions.put(methodDescription, lambdas);
-      }
-
-      return //new /*X*/MethodVisitor(Opcodes.ASM5,
-          new MethodCodeOffsetAdapter(cr, new MethodVisitor(Opcodes.ASM5) {}, codeStart) {
-              //@Override
-              //public void visitLocalVariable(String name, String desc,
-              //    String signature, Label start, Label end, int index) {
-              //  super.visitLocalVariable(name, desc,
-              //      signature, start, end, index);
-              //}
-              @Override
-              public void visitInvokeDynamicInsn(String name,
-                  String desc, Handle bsm, Object... bsmArgs) {
-                String methodName = ((Handle) bsmArgs[1]).getName();
-                int off = getCurrentOffset();
-                if ("<init>".equals(methodName)) {
-                  constrs.add(off);
-                } else {
-                  int ix = methodName.lastIndexOf('.');
-                  if (ix >= 0) {
-                    methodName = methodName.substring(ix+1);
-                  }
-                  if (methodName.startsWith("lambda$")) {
-                    lambdas.add(off);
-                  }
-                }
-                super.visitInvokeDynamicInsn(name, desc, bsm, bsmArgs);
-              }
-          }
-      //) {}
-      ;
     }
   }
 }
